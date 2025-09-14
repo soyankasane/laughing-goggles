@@ -1,0 +1,801 @@
+import React, { useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { FileDown, Beaker, BookOpen, Calculator, FileText, Layers, Settings, Construction, RefreshCw } from "lucide-react";
+
+export default function RebaraApp() {
+  const [mode, setMode] = useState<"engineer" | "tutor">("engineer");
+  const [element, setElement] = useState("Column");
+  const [brandWatermark, setBrandWatermark] = useState(true);
+  const [country, setCountry] = useState("UK");
+  const [na, setNa] = useState("UK NA (2014)");
+  const [codeFamily, setCodeFamily] = useState("EC2");
+  const [projectName, setProjectName] = useState("Demo Project");
+
+  // ---------------- Mock API (demo only) ----------------
+  const api = {
+    calcColumnEC2: async (inp: any) => {
+      const e0_mm = inp.adoptMinEcc20mm ? 20 : Math.max(1, Math.round(0.05 * inp.h_mm));
+      const M_kNm = +(inp.Ned_kN * (e0_mm / 1000)).toFixed(2);
+      const l0_mm = Math.round(0.85 * inp.storey_m * 1000);
+      const slender = l0_mm / inp.b_mm;
+      const isShort = slender <= 15;
+      const As_mm2 = 8 * 314; // 8T20 suggestion
+      const links = { type: "T8", spacing_mm: 150 };
+      return new Promise((res) => setTimeout(() => res({ e0_mm, M_kNm, l0_mm, slender, isShort, As_mm2, links, clauseTags:["EC0 6.4.3.2","EC2 5.5","EC2 8"] }), 200));
+    },
+    calcBeamEC2: async (inp: any) => {
+      const bw = inp.type === 'Flanged' ? (inp.bw_mm ?? inp.b_mm) : inp.b_mm;
+      const z_mm = Math.min(0.95 * inp.d_mm, (inp.d_mm/2) * (1 + Math.sqrt(Math.max(0, 1 - 3.53 * (inp.k_guess ?? 0.05)))));
+      const MEd_kNm = +(inp.wd_kNm * inp.L_m * inp.L_m / 8).toFixed(2);
+      const VEd_kN = +(inp.wd_kNm * inp.L_m / 2).toFixed(2);
+      const fyd = inp.fyk_MPa / 1.15;
+      const As_req_mm2 = +((MEd_kNm * 1e6) / (z_mm * fyd)).toFixed(0);
+      const As_min_mm2 = Math.max(0.0013 * bw * inp.d_mm, 0.26 * (Math.sqrt(inp.fck_MPa)) * bw * inp.d_mm / inp.fyk_MPa);
+      const vEd_MPa = +((VEd_kN * 1e3) / (bw * z_mm)).toFixed(3);
+      const rho = Math.min(0.02, (As_req_mm2 / (bw * inp.d_mm)));
+      const k = Math.min(2.0, 1 + Math.sqrt(200 / inp.d_mm));
+      const vRdc = +((0.18/1.5) * k * Math.cbrt(100 * rho * inp.fck_MPa)).toFixed(3);
+      const needLinks = vEd_MPa > vRdc;
+      const Asw_s_req = needLinks ? Math.max(0.0, (VEd_kN * 1e3) / ((inp.fywd_MPa ?? 435) * z_mm * Math.tan((inp.theta_deg ?? 45) * Math.PI/180))) : 0;
+      const L_over_d = +(inp.L_m * 1000 / inp.d_mm).toFixed(1);
+      const proxyPass = L_over_d <= (inp.type === 'Flanged' ? 22 : 20);
+      return new Promise((res)=>setTimeout(()=>res({
+        MEd_kNm, VEd_kN, z_mm: +z_mm.toFixed(0), As_req_mm2, As_min_mm2: +As_min_mm2.toFixed(0), vEd_MPa, vRdc_MPa: vRdc, needLinks,
+        Asw_per_s: +Asw_s_req.toFixed(3), L_over_d, proxyPass, clauseTags:["EC2 6.1","EC2 6.2","EC2 7.3","EC2 7.4"]
+      }), 220));
+    },
+    calcSlabEC2: async (inp: any) => {
+      const wd = +(inp.gammaG * inp.Gk_kNpm2 + inp.gammaQ * inp.Qk_kNpm2).toFixed(2);
+      const MEd_kNm_per_m = +(wd * inp.L_m * inp.L_m / 8).toFixed(2);
+      const fyd = inp.fyk_MPa / 1.15;
+      const z_mm = Math.min(0.95 * inp.d_mm, (inp.d_mm/2) * (1 + Math.sqrt(Math.max(0, 1 - 3.53 * (inp.k_guess ?? 0.05)))));
+      const As_req_mm2_per_m = +((MEd_kNm_per_m * 1e6) / (z_mm * fyd)).toFixed(0);
+      const As_min = Math.max(0.0013 * 1000 * inp.d_mm, 0.26 * Math.sqrt(inp.fck_MPa) * 1000 * inp.d_mm / inp.fyk_MPa);
+      const L_over_d = +(inp.L_m * 1000 / inp.d_mm).toFixed(1);
+      const proxyPass = L_over_d <= 30;
+      return new Promise((res)=>setTimeout(()=>res({wd, MEd_kNm_per_m, z_mm:+z_mm.toFixed(0), As_req_mm2_per_m, As_min_mm2_per_m:+As_min.toFixed(0), L_over_d, proxyPass, clauseTags:["EC2 6.1","EC2 7.3","EC2 7.4"]}), 200));
+    },
+    calcFoundationPad: async (inp: any) => {
+      const A_mm2 = inp.B_mm * inp.L_mm;
+      const V_Ed_kN = inp.NEd_kN; // axial for bearing; also resultant for punching demo
+      const q_kPa = +((V_Ed_kN * 1000) / A_mm2).toFixed(1);
+      const utilisation = +(q_kPa / inp.q_allow_kPa).toFixed(2);
+      // Punching inputs
+      const d = inp.d_eff_mm ?? Math.max(0, inp.h_mm - 75);
+      const col_b = inp.col_b_mm ?? 400;
+      const col_h = inp.col_h_mm ?? 400;
+      // Control perimeter at 2d; reduce for edge/corner
+      const rectPerimeter = 2 * ((col_b + 4*d) + (col_h + 4*d));
+      let u1_mm = rectPerimeter;
+      let edgeFactor = 1.0;
+      if (inp.location === 'Edge') { u1_mm *= 0.5; edgeFactor = 0.5; }
+      if (inp.location === 'Corner') { u1_mm *= 0.25; edgeFactor = 0.25; }
+      const VEd_N = (V_Ed_kN * 1000);
+      // Moment transfer (demo): eccentricity adds to shear stress on available perimeter
+      const Mx = (inp.Mx_kNm ?? 0) * 1e6; // Nmm
+      const My = (inp.My_kNm ?? 0) * 1e6;
+      const v_ave = VEd_N / (u1_mm * d);
+      const b0 = u1_mm;
+      const J = Math.max(1, (b0 * d * d) / 6);
+      const dv_from_M = (Math.abs(Mx) + Math.abs(My)) / (J * d);
+      const amplify = 1 / Math.max(0.25, edgeFactor);
+      const vEd_MPa = +( (v_ave + amplify * dv_from_M) ).toFixed(3);
+      const rho_l = 0.005;
+      const k = Math.min(2.0, 1 + Math.sqrt(200 / d));
+      const vRdc = +((0.18/1.5) * k * Math.cbrt(100 * rho_l * (inp.fck_MPa ?? 30))).toFixed(3);
+      const punchingOK = vEd_MPa <= vRdc;
+      const h_hint_mm = Math.max(inp.h_mm, Math.round(0.3 * Math.min(inp.B_mm, inp.L_mm)));
+      return new Promise((res)=>setTimeout(()=>res({q_kPa, utilisation, h_hint_mm, vEd_MPa, vRdc_MPa: vRdc, punchingOK, u1_mm, d_eff_mm: d, clauseTags:["EC7(geo)","EC2 6.2","EC2 6.4"], Mx_kNm: inp.Mx_kNm??0, My_kNm: inp.My_kNm??0, location: inp.location||'Interior'}), 220));
+    },
+    calcStaircase: async (inp: any) => {
+      const dens = 25;
+      const Gk = dens * (inp.waist_mm/1000) + inp.finishes_kNpm2;
+      const Qk = inp.Qk_kNpm2;
+      const wd = +(inp.gammaG * Gk + inp.gammaQ * Qk).toFixed(2);
+      const MEd_kNm_per_m = +(wd * inp.span_m * inp.span_m / 8).toFixed(2);
+      const fyd = inp.fyk_MPa / 1.15;
+      const z_mm = Math.min(0.95 * inp.d_mm, (inp.d_mm/2) * (1 + Math.sqrt(Math.max(0, 1 - 3.53 * (inp.k_guess ?? 0.05)))));
+      const As_req_mm2_per_m = +((MEd_kNm_per_m * 1e6) / (z_mm * fyd)).toFixed(0);
+      return new Promise((res)=>setTimeout(()=>res({wd, MEd_kNm_per_m, z_mm:+z_mm.toFixed(0), As_req_mm2_per_m, clauseTags:["EC1 stairs","EC2 6.1","EC2 7.4"]}), 200));
+    },
+    reportGenerate: async (payload: any) => {
+      const stamp = new Date().toISOString();
+      const body = { stamp, country, na, mode, element, payload, brand: "REBARA™" };
+      const blob = new Blob([JSON.stringify(body, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      return new Promise((res)=>setTimeout(()=>res({ url, stamp }), 180));
+    }
+  };
+
+  // ---------------- Column inputs ----------------
+  const [col, setCol] = useState({
+    code: "EC2",
+    na,
+    section: "Rectangular",
+    b_mm: 300,
+    h_mm: 300,
+    storey_m: 3.2,
+    bracing: "Braced (non-sway)",
+    fck_MPa: 30,
+    fyk_MPa: 500,
+    Ned_kN: 1200,
+    minEccRule: "0.05h",
+    adoptMinEcc20mm: false,
+  });
+  const [colRes, setColRes] = useState<any>(null);
+
+  // ---------------- Beam inputs ----------------
+  const [beam, setBeam] = useState({
+    type: 'Rectangular' as 'Rectangular' | 'Flanged',
+    system: "Simply supported",
+    b_mm: 230,
+    bw_mm: 230,
+    bf_mm: 1000,
+    hf_mm: 120,
+    h_mm: 500,
+    cover_mm: 25,
+    bar_mm: 16,
+    link_mm: 8,
+    d_mm: 450,
+    L_m: 6.0,
+    wd_kNm: 22.0,
+    fck_MPa: 30,
+    fyk_MPa: 500,
+    fywd_MPa: 435,
+    theta_deg: 45,
+  });
+  const [beamRes, setBeamRes] = useState<any>(null);
+
+  // ---------------- Slab inputs ----------------
+  const [slab, setSlab] = useState({
+    L_m: 5.0,
+    h_mm: 200,
+    d_mm: 170,
+    cover_mm: 25,
+    Gk_kNpm2: 8.5,
+    Qk_kNpm2: 3.0,
+    gammaG: 1.35,
+    gammaQ: 1.5,
+    fck_MPa: 30,
+    fyk_MPa: 500,
+  });
+  const [slabRes, setSlabRes] = useState<any>(null);
+
+  // ---------------- Foundation inputs ----------------
+  const [pad, setPad] = useState({
+    NEd_kN: 1500,
+    B_mm: 2200,
+    L_mm: 2200,
+    h_mm: 500,
+    d_eff_mm: 420,
+    col_b_mm: 400,
+    col_h_mm: 400,
+    q_allow_kPa: 200,
+    fck_MPa: 30,
+    location: 'Interior' as 'Interior'|'Edge'|'Corner',
+    Mx_kNm: 0,
+    My_kNm: 0,
+  });
+  const [padRes, setPadRes] = useState<any>(null);
+
+  // ---------------- Staircase inputs ----------------
+  const [stair, setStair] = useState({
+    span_m: 3.8,
+    waist_mm: 150,
+    d_mm: 125,
+    finishes_kNpm2: 1.5,
+    Qk_kNpm2: 4.0,
+    gammaG: 1.35,
+    gammaQ: 1.5,
+    fck_MPa: 30,
+    fyk_MPa: 500,
+  });
+  const [stairRes, setStairRes] = useState<any>(null);
+
+  // quick visuals (columns pre-calc)
+  const demo = useMemo(() => {
+    const e0_mm = col.adoptMinEcc20mm ? 20 : Math.round(0.05 * col.h_mm);
+    const Mex_kNm = +(col.Ned_kN * (e0_mm / 1000)).toFixed(1);
+    const l0_mm = Math.round(0.85 * col.storey_m * 1000);
+    const slenderRatio = +(l0_mm / col.b_mm).toFixed(1);
+    const isShort = slenderRatio <= 15;
+    const As_mm2 = 8 * 314;
+    const rho = +((As_mm2 / (col.b_mm * col.h_mm)) * 100).toFixed(2);
+    return { e0_mm, Mex_kNm, l0_mm, slenderRatio, isShort, As_mm2, rho };
+  }, [col]);
+
+  const reportRef = useRef<HTMLDivElement>(null);
+  const printReport = () => { if (typeof window !== "undefined") window.print(); };
+
+  const runCalc = async () => {
+    if (element === "Column") { setColRes(await api.calcColumnEC2(col)); }
+    else if (element === "Beam") { setBeamRes(await api.calcBeamEC2(beam)); }
+    else if (element === "Slab") { setSlabRes(await api.calcSlabEC2(slab)); }
+    else if (element === "Foundation") { setPadRes(await api.calcFoundationPad(pad)); }
+    else if (element === "Staircase") { setStairRes(await api.calcStaircase(stair)); }
+  };
+
+  const genReport = async () => {
+    const payload = { col, colRes, beam, beamRes, slab, slabRes, pad, padRes, stair, stairRes };
+    const r = await api.reportGenerate(payload);
+    window.open(r.url, '_blank');
+  };
+
+  // ---------- Safe helpers ----------
+  const fmtNum = (v: any, digits = 1) => (typeof v === "number" && isFinite(v) ? v.toFixed(digits) : "—");
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <style>{`@media print{ header, .no-print, .shadcn-tabs-trigger, .shadcn-tabs-list, footer{display:none!important} .page{page-break-after:always} .page:last-child{page-break-after:auto} .report-card{box-shadow:none;border:0} }`}</style>
+      {/* Top Bar */}
+      <header className="sticky top-0 z-40 bg-white/80 backdrop-blur border-b no-print">
+        <div className="mx-auto max-w-7xl px-4 py-3 flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Layers className="h-6 w-6" />
+            <div className="font-extrabold tracking-wide text-lg">REBARA<span className="align-super text-[10px] ml-0.5">™</span></div>
+            <Badge className="ml-2" variant="secondary">MVP</Badge>
+          </div>
+          <div className="ml-auto flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Switch checked={mode === "tutor"} onCheckedChange={(v)=>setMode(v?"tutor":"engineer")} id="mode" />
+              <Label htmlFor="mode" className="cursor-pointer">{mode === "engineer" ? "Engineer Mode" : "Tutor Mode"}</Label>
+            </div>
+            <Button variant="outline" onClick={runCalc}><Calculator className="mr-2 h-4 w-4"/>Run Calc (mock)</Button>
+            <Button variant="outline" onClick={genReport}><FileText className="mr-2 h-4 w-4"/>/report/generate (mock)</Button>
+            <Button variant="outline" onClick={async ()=>{
+              // Real PDF export using pdfmake (client-side)
+              const ensurePdfMake = async () => {
+                if ((window as any).pdfMake) return (window as any).pdfMake;
+                await new Promise((resolve)=>{ const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js'; s.onload = resolve; document.body.appendChild(s); });
+                await new Promise((resolve)=>{ const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js'; s.onload = resolve; document.body.appendChild(s); });
+                return (window as any).pdfMake;
+              };
+              const pdfMake = await ensurePdfMake();
+              const today = new Date();
+              const dateStr = today.toLocaleDateString();
+              const headerLogo = { text: 'REBARA™', style: 'logo' }; // replace with real image dataURL
+              const toc = { toc: { title: { text: 'Table of Contents', style: 'h1' } } };
+              const sections:any[] = [];
+              sections.push({ text: 'Project', style:'h2', id:'project'});
+              sections.push({ columns:[{width:'*',stack:[{text: projectName},{text: country+' • '+na},{text:'Code family: '+codeFamily},{text:'Mode: '+(mode==='engineer'?'Engineer':'Tutor')}]},{width:'*',stack:[{text:'Element: '+element},{text:'Date: '+dateStr},{text:'Brand: REBARA™'}]}], margin:[0,0,0,8]});
+              if(element==='Column'){
+                sections.push({text:'Inputs', style:'h2', id:'inputs'});
+                sections.push({columns:[{width:'*',stack:[`b×h: ${col.b_mm}×${col.h_mm} mm`,`Storey: ${col.storey_m} m`,`Bracing: ${col.bracing}`]},{width:'*',stack:[`fck/fyk: ${col.fck_MPa}/${col.fyk_MPa} MPa`,`Ned: ${col.Ned_kN} kN`]}]});
+                const slender = (colRes?.slender ?? (Math.round(0.85*col.storey_m*1000)/col.b_mm));
+                sections.push({text:'Results', style:'h2', id:'results'});
+                sections.push({ul:[`l0: ${(colRes?.l0_mm ?? Math.round(0.85*col.storey_m*1000))} mm`,`l0/b: ${slender.toFixed?slender.toFixed(1):slender}`,`Class: ${ (colRes?.isShort ?? (slender<=15)) ? 'Short' : 'Slender' }`,`e0: ${(colRes?.e0_mm ?? Math.round(0.05*col.h_mm))} mm`,`Mmin: ${(colRes?.M_kNm ?? +(col.Ned_kN*(Math.round(0.05*col.h_mm)/1000)).toFixed(1))} kNm`,`As ≈ ${(colRes?.As_mm2 ?? 8*314)} mm²` ]});
+              }
+              if(element==='Beam'){
+                sections.push({text:'Inputs', style:'h2', id:'inputs'});
+                sections.push({columns:[{width:'*',stack:[`Type: ${beam.type}`,`b×h: ${beam.b_mm}×${beam.h_mm} mm`,`d: ${beam.d_mm} mm`,`L: ${beam.L_m} m`]},{width:'*',stack:[`wd: ${beam.wd_kNm} kN/m`,`fck/fyk: ${beam.fck_MPa}/${beam.fyk_MPa} MPa`] }]});
+                sections.push({text:'Results', style:'h2', id:'results'});
+                sections.push({ul:[`MEd: ${beamRes?.MEd_kNm ?? '—'} kNm`,`VEd: ${beamRes?.VEd_kN ?? '—'} kN`,`z: ${beamRes?.z_mm ?? '—'} mm`,`As,req: ${beamRes?.As_req_mm2 ?? '—'} mm²`,`As,min: ${beamRes?.As_min_mm2 ?? '—'} mm²`,`vEd/vRdc: ${beamRes?.vEd_MPa ?? '—'} / ${beamRes?.vRdc_MPa ?? '—'} MPa`,`L/d: ${beamRes?.L_over_d ?? '—'}`]});
+              }
+              if(element==='Slab'){
+                sections.push({text:'Inputs', style:'h2', id:'inputs'});
+                sections.push({ul:[`L: ${slab.L_m} m`,`h/d: ${slab.h_mm}/${slab.d_mm} mm`,`Gk+Qk: ${slab.Gk_kNpm2}+${slab.Qk_kNpm2} kN/m²`]});
+                sections.push({text:'Results', style:'h2', id:'results'});
+                sections.push({ul:[`wd: ${slabRes?.wd ?? '—'} kN/m²`,`MEd: ${slabRes?.MEd_kNm_per_m ?? '—'} kNm/m`,`z: ${slabRes?.z_mm ?? '—'} mm`,`As,req: ${slabRes?.As_req_mm2_per_m ?? '—'} mm²/m`,`As,min: ${slabRes?.As_min_mm2_per_m ?? '—'} mm²/m`,`L/d: ${slabRes?.L_over_d ?? '—'}`]});
+              }
+              if(element==='Foundation'){
+                sections.push({text:'Inputs', style:'h2', id:'inputs'});
+                sections.push({ul:[`Ned: ${pad.NEd_kN} kN`,`B×L: ${pad.B_mm}×${pad.L_mm} mm`,`h/d: ${pad.h_mm}/${pad.d_eff_mm} mm`,`Col: ${pad.col_b_mm}×${pad.col_h_mm} mm`,`Location: ${pad.location}`,`Mx/My: ${pad.Mx_kNm}/${pad.My_kNm} kNm`,`q_allow: ${pad.q_allow_kPa} kPa`]});
+                sections.push({text:'Results', style:'h2', id:'results'});
+                sections.push({ul:[`q, util: ${padRes?.q_kPa ?? '—'} kPa, ${padRes?.utilisation ?? '—'}`,`u1: ${padRes?.u1_mm ?? '—'} mm`,`vEd/vRdc: ${padRes?.vEd_MPa ?? '—'} / ${padRes?.vRdc_MPa ?? '—'} MPa`,`Punching: ${padRes? (padRes.punchingOK?'OK':'Not OK') : '—'}`]});
+              }
+              const dd:any = {
+                header: [{ columns: [ headerLogo, { text: projectName, alignment:'right', margin:[0,4,0,0]} ], margin:[40,10,40,0] }],
+                footer: (currentPage:number, pageCount:number)=> ({
+                  margin:[40,0,40,10],
+                  columns:[
+                    { text: `${projectName}`, alignment:'left', fontSize:8 },
+                    { text: `${dateStr}`, alignment:'center', fontSize:8 },
+                    { text: `REBARA™  •  ${currentPage}/${pageCount}`, alignment:'right', fontSize:8 }
+                  ]
+                }),
+                content: [ { text:'REBARA Report', style:'h1', id:'title' }, { text:'', margin:[0,0,0,6] }, toc, { text:'', pageBreak:'after' }, ...sections ],
+                styles:{ logo:{fontSize:18,bold:true}, h1:{fontSize:16,bold:true,margin:[0,0,0,6]}, h2:{fontSize:12,bold:true,margin:[0,8,0,4]} }, defaultStyle:{fontSize:9}
+              };
+              pdfMake.createPdf(dd).download(`REBARA_${element}_report.pdf`);
+            }}><FileDown className="mr-2 h-4 w-4"/>Export PDF</Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Content */}
+      <main className="mx-auto max-w-7xl p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Left: Controls */}
+        <section className="lg:col-span-1 space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5"/> Project Setup</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Project name</Label>
+                  <Input value={projectName} onChange={(e)=>setProjectName(e.target.value)} />
+                </div>
+                <div>
+                  <Label>Country</Label>
+                  <Select value={country} onValueChange={(v)=>setCountry(v)}>
+                    <SelectTrigger><SelectValue placeholder="Country"/></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="UK">United Kingdom</SelectItem>
+                      <SelectItem value="IE">Ireland</SelectItem>
+                      <SelectItem value="NG">Nigeria</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Code family</Label>
+                  <Select value={codeFamily} onValueChange={(v)=>setCodeFamily(v)}>
+                    <SelectTrigger><SelectValue placeholder="Code family"/></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="EC2">Eurocode 2 (EN 1992)</SelectItem>
+                      <SelectItem value="BS8110">BS 8110</SelectItem>
+                      <SelectItem value="ACI318">ACI 318 (coming soon)</SelectItem>
+                      <SelectItem value="IS456">IS 456 (coming soon)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>National Annex</Label>
+                  <Select value={na} onValueChange={(v)=>{setNa(v); setCol({...col, na:v});}}>
+                    <SelectTrigger><SelectValue placeholder="NA"/></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="UK NA (2014)">UK NA (2014)</SelectItem>
+                      <SelectItem value="Project NA">Project NA</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Element</Label>
+                  <Select value={element} onValueChange={setElement}>
+                    <SelectTrigger><SelectValue placeholder="Element"/></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Column">Column</SelectItem>
+                      <SelectItem value="Beam">Beam</SelectItem>
+                      <SelectItem value="Slab">Slab</SelectItem>
+                      <SelectItem value="Foundation">Foundation</SelectItem>
+                      <SelectItem value="Staircase">Staircase</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-end">
+                  <Badge variant="outline" className="w-full justify-center">{mode === "engineer" ? "Engineer" : "Tutor"} Mode</Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Element Inputs */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2"><Construction className="h-5 w-5"/> {element} Inputs</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {element === "Column" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Section</Label>
+                      <Select value={col.section} onValueChange={(v)=>setCol({...col, section:v})}>
+                        <SelectTrigger><SelectValue placeholder="Section"/></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Rectangular">Rectangular</SelectItem>
+                          <SelectItem value="Circular">Circular</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Bracing</Label>
+                      <Select value={col.bracing} onValueChange={(v)=>setCol({...col, bracing:v})}>
+                        <SelectTrigger><SelectValue placeholder="Bracing"/></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Braced (non-sway)">Braced (non-sway)</SelectItem>
+                          <SelectItem value="Unbraced (sway)">Unbraced (sway)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>b (mm)</Label><Input type="number" value={col.b_mm} onChange={(e)=>setCol({...col, b_mm:+e.target.value})}/></div>
+                    <div><Label>h (mm)</Label><Input type="number" value={col.h_mm} onChange={(e)=>setCol({...col, h_mm:+e.target.value})}/></div>
+                    <div><Label>Storey height (m)</Label><Input type="number" step="0.01" value={col.storey_m} onChange={(e)=>setCol({...col, storey_m:+e.target.value})}/></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>fck (MPa)</Label><Input type="number" value={col.fck_MPa} onChange={(e)=>setCol({...col, fck_MPa:+e.target.value})}/></div>
+                    <div><Label>fyk (MPa)</Label><Input type="number" value={col.fyk_MPa} onChange={(e)=>setCol({...col, fyk_MPa:+e.target.value})}/></div>
+                    <div><Label>N<sub>Ed</sub> (kN)</Label><Input type="number" value={col.Ned_kN} onChange={(e)=>setCol({...col, Ned_kN:+e.target.value})}/></div>
+                  </div>
+                  <Separator/>
+                  <div className="grid grid-cols-3 gap-3 items-end">
+                    <div>
+                      <Label>Min eccentricity rule</Label>
+                      <Select value={col.minEccRule} onValueChange={(v)=>setCol({...col, minEccRule:v})}>
+                        <SelectTrigger><SelectValue/></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0.05h">e₀ = 0.05·h</SelectItem>
+                          <SelectItem value="0.1h">e₀ = 0.10·h (conservative)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-2"><Switch id="adopt20" checked={col.adoptMinEcc20mm} onCheckedChange={(v)=>setCol({...col, adoptMinEcc20mm:v})}/><Label htmlFor="adopt20">Adopt floor ≥ 20 mm</Label></div>
+                    <div className="text-sm text-slate-600">Preview e₀ = {demo.e0_mm} mm</div>
+                  </div>
+                </div>
+              )}
+
+              {element === "Beam" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Type</Label>
+                      <Select value={beam.type} onValueChange={(v:any)=>setBeam({...beam, type:v})}>
+                        <SelectTrigger><SelectValue/></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Rectangular">Rectangular</SelectItem>
+                          <SelectItem value="Flanged">Flanged (T/L)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div><Label>b (mm)</Label><Input type="number" value={beam.b_mm} onChange={(e)=>setBeam({...beam, b_mm:+e.target.value})}/></div>
+                    <div><Label>h (mm)</Label><Input type="number" value={beam.h_mm} onChange={(e)=>setBeam({...beam, h_mm:+e.target.value})}/></div>
+                  </div>
+                  {beam.type === 'Flanged' && (
+                    <div className="grid grid-cols-3 gap-3">
+                      <div><Label>b<sub>w</sub> (mm)</Label><Input type="number" value={beam.bw_mm} onChange={(e)=>setBeam({...beam, bw_mm:+e.target.value})}/></div>
+                      <div><Label>b<sub>f</sub> (mm)</Label><Input type="number" value={beam.bf_mm} onChange={(e)=>setBeam({...beam, bf_mm:+e.target.value})}/></div>
+                      <div><Label>h<sub>f</sub> (mm)</Label><Input type="number" value={beam.hf_mm} onChange={(e)=>setBeam({...beam, hf_mm:+e.target.value})}/></div>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>d (mm)</Label><Input type="number" value={beam.d_mm} onChange={(e)=>setBeam({...beam, d_mm:+e.target.value})}/></div>
+                    <div><Label>L (m)</Label><Input type="number" step="0.1" value={beam.L_m} onChange={(e)=>setBeam({...beam, L_m:+e.target.value})}/></div>
+                    <div><Label>w<sub>d</sub> (kN/m)</Label><Input type="number" step="0.1" value={beam.wd_kNm} onChange={(e)=>setBeam({...beam, wd_kNm:+e.target.value})}/></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>fck (MPa)</Label><Input type="number" value={beam.fck_MPa} onChange={(e)=>setBeam({...beam, fck_MPa:+e.target.value})}/></div>
+                    <div><Label>fyk (MPa)</Label><Input type="number" value={beam.fyk_MPa} onChange={(e)=>setBeam({...beam, fyk_MPa:+e.target.value})}/></div>
+                    <div><Label>fywd (MPa)</Label><Input type="number" value={beam.fywd_MPa} onChange={(e)=>setBeam({...beam, fywd_MPa:+e.target.value})}/></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>θ (deg)</Label><Input type="number" value={beam.theta_deg} onChange={(e)=>setBeam({...beam, theta_deg:+e.target.value})}/></div>
+                    <div><Label>Cover (mm)</Label><Input type="number" value={beam.cover_mm} onChange={(e)=>setBeam({...beam, cover_mm:+e.target.value})}/></div>
+                    <div><Label>Bar / Link (mm)</Label><div className="grid grid-cols-2 gap-2"><Input type="number" value={beam.bar_mm} onChange={(e)=>setBeam({...beam, bar_mm:+e.target.value})}/><Input type="number" value={beam.link_mm} onChange={(e)=>setBeam({...beam, link_mm:+e.target.value})}/></div></div>
+                  </div>
+                </div>
+              )}
+
+              {element === "Slab" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>L (m)</Label><Input type="number" value={slab.L_m} onChange={(e)=>setSlab({...slab, L_m:+e.target.value})}/></div>
+                    <div><Label>h (mm)</Label><Input type="number" value={slab.h_mm} onChange={(e)=>setSlab({...slab, h_mm:+e.target.value})}/></div>
+                    <div><Label>d (mm)</Label><Input type="number" value={slab.d_mm} onChange={(e)=>setSlab({...slab, d_mm:+e.target.value})}/></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>G<sub>k</sub> (kN/m²)</Label><Input type="number" step="0.1" value={slab.Gk_kNpm2} onChange={(e)=>setSlab({...slab, Gk_kNpm2:+e.target.value})}/></div>
+                    <div><Label>Q<sub>k</sub> (kN/m²)</Label><Input type="number" step="0.1" value={slab.Qk_kNpm2} onChange={(e)=>setSlab({...slab, Qk_kNpm2:+e.target.value})}/></div>
+                    <div><Label>γ<sub>G</sub> / γ<sub>Q</sub></Label><div className="grid grid-cols-2 gap-2"><Input type="number" step="0.01" value={slab.gammaG} onChange={(e)=>setSlab({...slab, gammaG:+e.target.value})}/><Input type="number" step="0.01" value={slab.gammaQ} onChange={(e)=>setSlab({...slab, gammaQ:+e.target.value})}/></div></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>fck (MPa)</Label><Input type="number" value={slab.fck_MPa} onChange={(e)=>setSlab({...slab, fck_MPa:+e.target.value})}/></div>
+                    <div><Label>fyk (MPa)</Label><Input type="number" value={slab.fyk_MPa} onChange={(e)=>setSlab({...slab, fyk_MPa:+e.target.value})}/></div>
+                    <div><Label>Cover (mm)</Label><Input type="number" value={slab.cover_mm} onChange={(e)=>setSlab({...slab, cover_mm:+e.target.value})}/></div>
+                  </div>
+                </div>
+              )}
+
+              {element === "Foundation" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>N<sub>Ed</sub> (kN)</Label><Input type="number" value={pad.NEd_kN} onChange={(e)=>setPad({...pad, NEd_kN:+e.target.value})}/></div>
+                    <div><Label>B (mm)</Label><Input type="number" value={pad.B_mm} onChange={(e)=>setPad({...pad, B_mm:+e.target.value})}/></div>
+                    <div><Label>L (mm)</Label><Input type="number" value={pad.L_mm} onChange={(e)=>setPad({...pad, L_mm:+e.target.value})}/></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>h (mm)</Label><Input type="number" value={pad.h_mm} onChange={(e)=>setPad({...pad, h_mm:+e.target.value})}/></div>
+                    <div><Label>d_eff (mm)</Label><Input type="number" value={pad.d_eff_mm} onChange={(e)=>setPad({...pad, d_eff_mm:+e.target.value})}/></div>
+                    <div><Label>q<sub>allow</sub> (kPa)</Label><Input type="number" value={pad.q_allow_kPa} onChange={(e)=>setPad({...pad, q_allow_kPa:+e.target.value})}/></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>Column b (mm)</Label><Input type="number" value={pad.col_b_mm} onChange={(e)=>setPad({...pad, col_b_mm:+e.target.value})}/></div>
+                    <div><Label>Column h (mm)</Label><Input type="number" value={pad.col_h_mm} onChange={(e)=>setPad({...pad, col_h_mm:+e.target.value})}/></div>
+                    <div><Label>fck (MPa)</Label><Input type="number" value={pad.fck_MPa} onChange={(e)=>setPad({...pad, fck_MPa:+e.target.value})}/></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <Label>Column location</Label>
+                      <Select value={pad.location} onValueChange={(v:any)=>setPad({...pad, location:v})}>
+                        <SelectTrigger><SelectValue/></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="Interior">Interior</SelectItem>
+                          <SelectItem value="Edge">Edge</SelectItem>
+                          <SelectItem value="Corner">Corner</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div><Label>Mx (kNm)</Label><Input type="number" value={pad.Mx_kNm} onChange={(e)=>setPad({...pad, Mx_kNm:+e.target.value})}/></div>
+                    <div><Label>My (kNm)</Label><Input type="number" value={pad.My_kNm} onChange={(e)=>setPad({...pad, My_kNm:+e.target.value})}/></div>
+                  </div>
+                </div>
+              )}
+
+              {element === "Staircase" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>Span (m)</Label><Input type="number" value={stair.span_m} onChange={(e)=>setStair({...stair, span_m:+e.target.value})}/></div>
+                    <div><Label>Waist (mm)</Label><Input type="number" value={stair.waist_mm} onChange={(e)=>setStair({...stair, waist_mm:+e.target.value})}/></div>
+                    <div><Label>d (mm)</Label><Input type="number" value={stair.d_mm} onChange={(e)=>setStair({...stair, d_mm:+e.target.value})}/></div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div><Label>Finishes (kN/m²)</Label><Input type="number" step="0.1" value={stair.finishes_kNpm2} onChange={(e)=>setStair({...stair, finishes_kNpm2:+e.target.value})}/></div>
+                    <div><Label>Q<sub>k</sub> (kN/m²)</Label><Input type="number" step="0.1" value={stair.Qk_kNpm2} onChange={(e)=>setStair({...stair, Qk_kNpm2:+e.target.value})}/></div>
+                    <div><Label>γ<sub>G</sub> / γ<sub>Q</sub></Label><div className="grid grid-cols-2 gap-2"><Input type="number" step="0.01" value={stair.gammaG} onChange={(e)=>setStair({...stair, gammaG:+e.target.value})}/><Input type="number" step="0.01" value={stair.gammaQ} onChange={(e)=>setStair({...stair, gammaQ:+e.target.value})}/></div></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>fck (MPa)</Label><Input type="number" value={stair.fck_MPa} onChange={(e)=>setStair({...stair, fck_MPa:+e.target.value})}/></div>
+                    <div><Label>fyk (MPa)</Label><Input type="number" value={stair.fyk_MPa} onChange={(e)=>setStair({...stair, fyk_MPa:+e.target.value})}/></div>
+                  </div>
+                </div>
+              )}
+
+            </CardContent>
+          </Card>
+
+          <Card className="no-print">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2"><Settings className="h-5 w-5"/> Branding</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex items-center gap-2"><Switch id="wm" checked={brandWatermark} onCheckedChange={setBrandWatermark}/><Label htmlFor="wm">Show REBARA™ watermark on reports</Label></div>
+              <Textarea placeholder="Report footer note" defaultValue={"REBARA™ — Reinforced Concrete Design Tutor | Not a substitute for the Engineer of Record (EOR)."}/>
+            </CardContent>
+          </Card>
+        </section>
+
+        {/* Right: Report / Workflow / Tutor / AI */}
+        <section className="lg:col-span-2 space-y-4" ref={reportRef}>
+          <Tabs defaultValue="report" className="w-full">
+            <TabsList className="shadcn-tabs-list">
+              <TabsTrigger value="report" className="shadcn-tabs-trigger"><FileText className="mr-2 h-4 w-4"/>Report</TabsTrigger>
+              <TabsTrigger value="workflow" className="shadcn-tabs-trigger"><Calculator className="mr-2 h-4 w-4"/>Workflow</TabsTrigger>
+              <TabsTrigger value="tutor" className="shadcn-tabs-trigger"><BookOpen className="mr-2 h-4 w-4"/>Tutor</TabsTrigger>
+              <TabsTrigger value="ai" className="shadcn-tabs-trigger"><Beaker className="mr-2 h-4 w-4"/>AI</TabsTrigger>
+            </TabsList>
+
+            {/* REPORT TAB (print-optimised with page sections) */}
+            <TabsContent value="report">
+              <div className="page">
+                <Card className="overflow-hidden relative report-card">
+                  {brandWatermark && (<div className="pointer-events-none select-none absolute opacity-10 rotate-[-18deg] text-7xl font-black left-24 top-24">REBARA™</div>)}
+                  <CardHeader className="bg-white">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-xl">REBARA™ — {element} Design Report ({mode === "engineer" ? "Engineer" : "Tutor"} Mode)</CardTitle>
+                      <Badge variant="secondary">{projectName} • {country} • {na} • {codeFamily}</Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <div className="rounded-xl border p-3">
+                        <h3 className="font-semibold mb-2">Basis</h3>
+                        <ul className="text-sm list-disc ml-5 space-y-1">
+                          <li>Code: {codeFamily === 'EC2' ? 'Eurocode 2 (EN 1992-1-1)' : (codeFamily==='BS8110'?'BS 8110 (legacy)':'Coming soon')}</li>
+                          <li>National Annex: {na}</li>
+                          <li>Country: {country}</li>
+                          <li>Element: {element}</li>
+                        </ul>
+                      </div>
+                      <div className="rounded-xl border p-3">
+                        <h3 className="font-semibold mb-2">Inputs</h3>
+                        {element === "Column" && (
+                          <div className="text-sm grid grid-cols-2 gap-y-1">
+                            <div>b×h (mm)</div><div className="text-right">{col.b_mm} × {col.h_mm}</div>
+                            <div>Storey height (m)</div><div className="text-right">{col.storey_m}</div>
+                            <div>Bracing</div><div className="text-right">{col.bracing}</div>
+                            <div>fck / fyk (MPa)</div><div className="text-right">{col.fck_MPa} / {col.fyk_MPa}</div>
+                            <div>N<sub>Ed</sub> (kN)</div><div className="text-right">{col.Ned_kN}</div>
+                          </div>
+                        )}
+                        {element === "Beam" && (
+                          <div className="text-sm grid grid-cols-2 gap-y-1">
+                            <div>Type</div><div className="text-right">{beam.type}</div>
+                            <div>b×h (mm)</div><div className="text-right">{beam.b_mm} × {beam.h_mm}</div>
+                            {beam.type==='Flanged' && <><div>b<sub>w</sub>/b<sub>f</sub>/h<sub>f</sub> (mm)</div><div className="text-right">{beam.bw_mm}/{beam.bf_mm}/{beam.hf_mm}</div></>}
+                            <div>d (mm)</div><div className="text-right">{beam.d_mm}</div>
+                            <div>L (m)</div><div className="text-right">{beam.L_m}</div>
+                            <div>w<sub>d</sub> (kN/m)</div><div className="text-right">{beam.wd_kNm}</div>
+                          </div>
+                        )}
+                        {element === "Slab" && (
+                          <div className="text-sm grid grid-cols-2 gap-y-1">
+                            <div>L (m)</div><div className="text-right">{slab.L_m}</div>
+                            <div>h / d (mm)</div><div className="text-right">{slab.h_mm} / {slab.d_mm}</div>
+                            <div>G<sub>k</sub> + Q<sub>k</sub> (kN/m²)</div><div className="text-right">{slab.Gk_kNpm2} + {slab.Qk_kNpm2}</div>
+                          </div>
+                        )}
+                        {element === "Foundation" && (
+                          <div className="text-sm grid grid-cols-2 gap-y-1">
+                            <div>N<sub>Ed</sub> (kN)</div><div className="text-right">{pad.NEd_kN}</div>
+                            <div>B×L (mm)</div><div className="text-right">{pad.B_mm} × {pad.L_mm}</div>
+                            <div>h / d_eff (mm)</div><div className="text-right">{pad.h_mm} / {pad.d_eff_mm}</div>
+                            <div>Column (mm)</div><div className="text-right">{pad.col_b_mm} × {pad.col_h_mm}</div>
+                            <div>Location</div><div className="text-right">{pad.location}</div>
+                            <div>Moments (kNm)</div><div className="text-right">Mx {pad.Mx_kNm}, My {pad.My_kNm}</div>
+                          </div>
+                        )}
+                        {element === "Staircase" && (
+                          <div className="text-sm grid grid-cols-2 gap-y-1">
+                            <div>Span (m)</div><div className="text-right">{stair.span_m}</div>
+                            <div>Waist / d (mm)</div><div className="text-right">{stair.waist_mm} / {stair.d_mm}</div>
+                            <div>Fin + Q<sub>k</sub> (kN/m²)</div><div className="text-right">{stair.finishes_kNpm2} + {stair.Qk_kNpm2}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="page">
+                {element === "Column" && (()=>{ const slenderVal = colRes?.slender ?? demo.slenderRatio; const slenderText = fmtNum(slenderVal,1); const l0Text = fmtNum(colRes?.l0_mm ?? demo.l0_mm,0); const isShort = (typeof colRes?.isShort==='boolean')? colRes!.isShort : demo.isShort; const e0Text = fmtNum(colRes?.e0_mm ?? demo.e0_mm,0); const MminText = fmtNum(colRes?.M_kNm ?? demo.Mex_kNm,1); const AsText = fmtNum(colRes?.As_mm2 ?? demo.As_mm2,0); const linksText = colRes?.links ? `${colRes.links.type} @ ${colRes.links.spacing_mm} mm` : 'T8 @ 150'; return (
+                  <Card className="report-card"><CardHeader className="pb-2"><CardTitle className="text-base">Results — Column</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><div className="grid md:grid-cols-2 gap-4"><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>l₀ (mm)</span><span>{l0Text}</span></div><div className="flex justify-between"><span>l₀/b</span><span>{slenderText}</span></div><div className="flex justify-between"><span>Class</span><span className={isShort?"text-emerald-700":"text-amber-700"}>{isShort?"Short":"Slender"}</span></div></div><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>e₀ (mm)</span><span>{e0Text}</span></div><div className="flex justify-between"><span>Mmin (kNm)</span><span>{MminText}</span></div></div></div><div className="rounded-xl border p-3 mt-3"><div className="flex justify-between"><span>As (mm²)</span><span>{AsText} (≈8T20)</span></div><div className="flex justify-between"><span>Links</span><span>{linksText}</span></div></div></CardContent></Card> ); })()}
+
+                {element === "Beam" && (
+                  <Card className="report-card"><CardHeader className="pb-2"><CardTitle className="text-base">Results — Beam ({beam.type})</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><div className="grid md:grid-cols-2 gap-4"><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>M<sub>Ed</sub> (kNm)</span><span>{fmtNum(beamRes?.MEd_kNm,2)}</span></div><div className="flex justify-between"><span>V<sub>Ed</sub> (kN)</span><span>{fmtNum(beamRes?.VEd_kN,2)}</span></div><div className="flex justify-between"><span>z (mm)</span><span>{fmtNum(beamRes?.z_mm,0)}</span></div></div><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>A<sub>s,req</sub> (mm²)</span><span>{fmtNum(beamRes?.As_req_mm2,0)}</span></div><div className="flex justify-between"><span>A<sub>s,min</sub> (mm²)</span><span>{fmtNum(beamRes?.As_min_mm2,0)}</span></div><div className="flex justify-between"><span>L/d</span><span>{fmtNum(beamRes?.L_over_d,1)} ({beamRes? (beamRes.proxyPass?"OK":"Check") : "—"})</span></div></div></div><div className="rounded-xl border p-3 mt-3"><div className="flex justify-between"><span>v<sub>Ed</sub> (MPa)</span><span>{fmtNum(beamRes?.vEd_MPa,3)}</span></div><div className="flex justify-between"><span>v<sub>Rdc</sub> (MPa)</span><span>{fmtNum(beamRes?.vRdc_MPa,3)}</span></div><div className="flex justify-between"><span>Links?</span><span className={beamRes? (beamRes.needLinks?"text-amber-700":"text-emerald-700") : "text-slate-500"}>{beamRes? (beamRes.needLinks?"Yes":"No (min)") : "—"}</span></div></div></CardContent></Card>
+                )}
+
+                {element === "Slab" && (
+                  <Card className="report-card"><CardHeader className="pb-2"><CardTitle className="text-base">Results — Slab</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><div className="grid md:grid-cols-2 gap-4"><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>w<sub>d</sub> (kN/m²)</span><span>{fmtNum(slabRes?.wd,2)}</span></div><div className="flex justify-between"><span>M<sub>Ed</sub> (kNm/m)</span><span>{fmtNum(slabRes?.MEd_kNm_per_m,2)}</span></div><div className="flex justify-between"><span>z (mm)</span><span>{fmtNum(slabRes?.z_mm,0)}</span></div></div><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>A<sub>s,req</sub> (mm²/m)</span><span>{fmtNum(slabRes?.As_req_mm2_per_m,0)}</span></div><div className="flex justify-between"><span>A<sub>s,min</sub> (mm²/m)</span><span>{fmtNum(slabRes?.As_min_mm2_per_m,0)}</span></div><div className="flex justify-between"><span>L/d</span><span>{fmtNum(slabRes?.L_over_d,1)} ({slabRes? (slabRes.proxyPass?"OK":"Check") : "—"})</span></div></div></div></CardContent></Card>
+                )}
+
+                {element === "Foundation" && (
+                  <Card className="report-card"><CardHeader className="pb-2"><CardTitle className="text-base">Results — Pad Base</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><div className="grid md:grid-cols-2 gap-4"><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>q (kPa)</span><span>{fmtNum(padRes?.q_kPa,1)}</span></div><div className="flex justify-between"><span>Utilisation</span><span>{fmtNum(padRes?.utilisation,2)}</span></div></div><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>u<sub>1</sub> (mm)</span><span>{fmtNum(padRes?.u1_mm,0)}</span></div><div className="flex justify-between"><span>d (mm)</span><span>{fmtNum(padRes?.d_eff_mm,0)}</span></div><div className="flex justify-between"><span>v<sub>Ed</sub> (MPa)</span><span>{fmtNum(padRes?.vEd_MPa,3)}</span></div><div className="flex justify-between"><span>v<sub>Rdc</sub> (MPa)</span><span>{fmtNum(padRes?.vRdc_MPa,3)}</span></div><div className="flex justify-between"><span>Punching</span><span className={padRes? (padRes.punchingOK?"text-emerald-700":"text-amber-700") : "text-slate-500"}>{padRes? (padRes.punchingOK?"OK":"Not OK — increase h or pad size") : "—"}</span></div></div></div></CardContent></Card>
+                )}
+
+                {element === "Staircase" && (
+                  <Card className="report-card"><CardHeader className="pb-2"><CardTitle className="text-base">Results — Staircase</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><div className="grid md:grid-cols-2 gap-4"><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>w<sub>d</sub> (kN/m²)</span><span>{fmtNum(stairRes?.wd,2)}</span></div><div className="flex justify-between"><span>M<sub>Ed</sub> (kNm/m)</span><span>{fmtNum(stairRes?.MEd_kNm_per_m,2)}</span></div></div><div className="rounded-xl border p-3 space-y-2"><div className="flex justify-between"><span>z (mm)</span><span>{fmtNum(stairRes?.z_mm,0)}</span></div><div className="flex justify-between"><span>A<sub>s,req</sub> (mm²/m)</span><span>{fmtNum(stairRes?.As_req_mm2_per_m,0)}</span></div></div></div></CardContent></Card>
+                )}
+              </div>
+
+              <div className="page">
+                <Card className="report-card"><CardHeader className="pb-2"><CardTitle className="text-base">Notes & Disclaimers</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p>REBARA™ — Educational preview with mocked API. Connect to REBARA Calc API for clause‑verified numerics.</p><p><b>Not a substitute for the Engineer of Record (EOR).</b></p></CardContent></Card>
+              </div>
+            </TabsContent>
+
+            {/* WORKFLOW TAB */}
+            <TabsContent value="workflow">
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2"><Calculator className="h-5 w-5"/> REBARA Workflow</CardTitle></CardHeader>
+                <CardContent className="text-sm space-y-3">
+                  <ol className="list-decimal ml-5 space-y-1">
+                    <li>Inputs → Combinations (EC0/BS) → Classification</li>
+                    <li>ULS checks (flexure, shear, punching/interaction)</li>
+                    <li>SLS checks (deflection, cracking) as required</li>
+                    <li>Detailing (cover, spacing, anchorage, laps)</li>
+                  </ol>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="font-semibold">API Plan</p>
+                    <ul className="list-disc ml-5 space-y-1">
+                      <li><code>POST /calc/column-ec2</code> — classification, min‑moments, As, links, clause tags.</li>
+                      <li><code>POST /calc/beam-ec2</code> — M, V, z, As_req, shear, span/depth proxy.</li>
+                      <li><code>POST /calc/slab-ec2</code> — wd, M, z, As_req, SLS proxy.</li>
+                      <li><code>POST /calc/padbase-ec2</code> — bearing & punching.</li>
+                      <li><code>POST /calc/stair-ec2</code> — udl, M, z, As_req.</li>
+                      <li><code>POST /report/generate</code> — branded Engineer/Tutor PDF.</li>
+                      <li><code>GET /na/{country}</code> — NA parameters (ψ, γ, crack limits, cover).</li>
+                      <li><code>POST /tutor/answer</code> — RAG over EC/NA PDFs.</li>
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* TUTOR MODE TAB */}
+            <TabsContent value="tutor">
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2"><BookOpen className="h-5 w-5"/> Tutor Mode — Live Chat (RAG stub)</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                  <TutorChat />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* AI TAB */}
+            <TabsContent value="ai">
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2"><Beaker className="h-5 w-5"/> REBARA AI — Smart Assistants (Mock)</CardTitle></CardHeader>
+                <CardContent className="grid md:grid-cols-3 gap-4">
+                  <Card className="border-dashed"><CardHeader className="pb-2"><CardTitle className="text-base">AI Cost Estimator</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p>Rough quantities from current inputs:</p><ul className="list-disc ml-5 space-y-1 text-xs"><li>Concrete volume (beam): ~ {(beam.b_mm*beam.h_mm*beam.L_m/1e6).toFixed(2)} m³</li><li>Concrete volume (slab, 1 m strip): ~ {(slab.h_mm/1000 * slab.L_m).toFixed(2)} m³</li><li>Steel mass (beam flexural, guess 120 kg/m³): ~ {((beam.b_mm*beam.h_mm*beam.L_m/1e6)*120).toFixed(1)} kg</li></ul><p className="text-xs text-slate-600">Plug your regional rates to price.</p></CardContent></Card>
+                  <Card className="border-dashed"><CardHeader className="pb-2"><CardTitle className="text-base">AI Carbon Footprint</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p>Illustrative factors:</p><ul className="list-disc ml-5 space-y-1 text-xs"><li>Concrete C30/37 ≈ 0.10 tCO₂e/m³</li><li>Rebar ≈ 1.7 tCO₂e/t</li></ul><p>Beam footprint ≈ {( (beam.b_mm*beam.h_mm*beam.L_m/1e6)*0.10 + (((beam.b_mm*beam.h_mm*beam.L_m/1e6)*120)/1000)*1.7 ).toFixed(2)} tCO₂e</p><p className="text-xs text-slate-600">Replace with verified EPDs per project.</p></CardContent></Card>
+                  <Card className="border-dashed"><CardHeader className="pb-2"><CardTitle className="text-base">Tutorial Assistant</CardTitle></CardHeader><CardContent className="text-sm space-y-2"><p className="font-medium">Preset prompts</p><ul className="list-disc ml-5 space-y-1 text-xs"><li>"Act as a professor of civil engineering and explain why L/d limits differ for flanged beams."</li><li>"Compare EC2 minimum steel rules for beams vs slabs with examples."</li><li>"Walk me through a punching shear check workflow for a pad base."</li></ul><p className="text-xs">Hook this to <code>/tutor/answer</code> for grounded tutoring with your PDFs.</p></CardContent></Card>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+          </Tabs>
+        </section>
+      </main>
+
+      <footer className="border-t bg-white no-print">
+        <div className="max-w-7xl mx-auto px-4 py-3 text-xs text-slate-500 flex items-center justify-between">
+          <div>© {new Date().getFullYear()} REBARA™ — Reinforced Concrete Design Tutor</div>
+          <div className="flex items-center gap-3">
+            <span className="hidden md:inline">MVP • Engineer / Tutor • AI stubs</span>
+            <Button variant="ghost" size="sm" onClick={()=>window.location.reload()}><RefreshCw className="h-3.5 w-3.5 mr-1"/>Reset</Button>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+// ------- Tutor Chat (mock RAG over EC/NA PDFs or backend) -------
+function TutorChat(){
+  const [messages, setMessages] = React.useState<Array<{role:'user'|'assistant', text:string}>>([
+    {role:'assistant', text: 'Hello! Ask about EC2/BS8110 beams, slabs, columns, or punching shear. I will cite clause identifiers (paraphrased).'}
+  ]);
+  const [q, setQ] = React.useState('Explain punching shear perimeter for edge columns.');
+
+  const localSnippets = [
+    { id:'ec2-6.4', title:'EN 1992-1-1', tag:'EC2 6.4', text:'Critical control perimeter u1 is taken at 2d from the loaded area; reduce for edge/corner supports.' },
+    { id:'ec2-6.2', title:'EN 1992-1-1', tag:'EC2 6.2', text:'Shear without shear reinforcement: vRdc = (CRd,c)·k·(100·ρl·fck)^(1/3).' },
+    { id:'bs8110-punch', title:'BS 8110', tag:'BS8110 3.8', text:'Punching shear perimeter at 1.5d typically; enhancements for edge/corner apply.' },
+  ];
+
+  const ask = async () => {
+    const userQ = q.trim();
+    if(!userQ) return;
+    setMessages(m=>[...m,{role:'user', text:userQ}]);
+    setQ('');
+    try{
+      const resp = await fetch('/tutor/answer', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: userQ, top_k: 3, code_family: 'EC2|BS8110' }) });
+      if(!resp.ok) throw new Error('offline');
+      const data = await resp.json();
+      const txt = (data.answer || '') + (data.citations? ('\n\n' + data.citations.map((c:any)=>`• ${c.tag}${c.page?(' p.'+c.page):''}`).join('\n')) : '');
+      setMessages(m=>[...m,{role:'assistant', text: txt || 'No answer text.' }]);
+    }catch(err){
+      const hits = localSnippets.filter(s=> userQ.toLowerCase().split(/\W+/).some(w=> w && (s.text.toLowerCase().includes(w) || s.tag.toLowerCase().includes(w))));
+      const answer = (hits.length? hits.map(h=>`• ${h.text} [${h.tag}]`).join('\n') : 'No direct snippet found. Provide more detail or open the code.') + '\n\nNot a substitute for the EOR.';
+      setMessages(m=>[...m,{role:'assistant', text:answer}]);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border p-3">
+      <div className="h-48 overflow-auto space-y-2 text-sm">
+        {messages.map((m,i)=> (
+          <div key={i} className={m.role==='user'? 'text-right' : ''}>
+            <span className={ 'inline-block px-2 py-1 rounded ' + (m.role==='user' ? 'bg-indigo-100' : 'bg-slate-100') }>{m.text}</span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 flex gap-2">
+        <Input value={q} onChange={e=>setQ(e.target.value)} placeholder="Ask a code question…" />
+        <Button onClick={ask}>Ask</Button>
+      </div>
+      <div className="text-xs text-slate-500 mt-2">Connected mode: POST <code>/tutor/answer</code> → <code>{`{question, top_k, code_family}`}</code> ⇒ <code>{`{answer, citations:[{title, tag, page}]}`}</code>. This UI falls back to local snippets when offline.</div>
+    </div>
+  );
+}
